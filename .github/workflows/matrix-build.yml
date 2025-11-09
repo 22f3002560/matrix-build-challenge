@@ -1,0 +1,132 @@
+name: Multi-Platform Matrix Build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  matrix-build:
+    name: Build JavaScript/Node.js ${{ matrix.version }}
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        version: ['18', '20', '22']
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js ${{ matrix.version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.version }}
+            - name: matrix-557da5b
+        run: |
+          echo "Building for JavaScript/Node.js ${{ matrix.version }}"
+          echo "Runner OS: ${{ runner.os }}"
+          echo "Build timestamp: $(date)"
+      
+      - name: Create build output directory
+        run: mkdir -p build-output
+      
+      - name: Generate build metadata
+        shell: bash
+        run: |
+          cat > build-output/build-info.json << EOF
+          {
+            "version": "${{ matrix.version }}",
+            "language": "JavaScript/Node.js",
+            "runner_os": "${{ runner.os }}",
+            "build_time": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "github_sha": "${{ github.sha }}",
+            "workflow_run": "${{ github.run_number }}"
+          }
+          EOF
+      
+      - name: Generate build artifact
+        shell: bash
+        run: |
+          echo "=== Build Report ===" > build-output/build-result.txt
+          echo "Language/Platform: JavaScript/Node.js" >> build-output/build-result.txt
+          echo "Version: ${{ matrix.version }}" >> build-output/build-result.txt
+          echo "Runner: ${{ runner.os }}" >> build-output/build-result.txt
+          echo "Build Time: $(date)" >> build-output/build-result.txt
+          echo "Commit SHA: ${{ github.sha }}" >> build-output/build-result.txt
+          echo "Build Number: ${{ github.run_number }}" >> build-output/build-result.txt
+          echo "" >> build-output/build-result.txt
+          echo "Build Status: SUCCESS" >> build-output/build-result.txt
+      
+      - name: Display artifact contents
+        shell: bash
+        run: |
+          echo "=== Generated Artifacts ==="
+          cat build-output/build-result.txt
+          echo ""
+          echo "=== Metadata ==="
+          cat build-output/build-info.json
+      
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-557da5b-${{ matrix.version }}
+          path: build-output/
+          retention-days: 30
+          if-no-files-found: error
+  
+  verify-builds:
+    name: Verify All Builds
+    needs: matrix-build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: build-557da5b-*
+          path: all-builds
+      
+      - name: Verify artifacts
+        run: |
+          echo "=== Verification Report ==="
+          count=0
+          for dir in all-builds/*/; do
+            count=$((count + 1))
+            dirname=$(basename "$dir")
+            echo "✓ Artifact $count: $dirname"
+            if [ -f "$dir/build-result.txt" ]; then
+              echo "  - Contains build-result.txt"
+            fi
+            if [ -f "$dir/build-info.json" ]; then
+              echo "  - Contains build-info.json"
+            fi
+          done
+          echo ""
+          echo "Total artifacts verified: $count"
+          echo "Expected artifacts: 3"
+          
+          if [ $count -eq 3 ]; then
+            echo "✅ All artifacts present!"
+          else
+            echo "❌ Missing artifacts!"
+            exit 1
+          fi
+      
+      - name: Generate summary
+        run: |
+          echo "# 🎉 Matrix Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Build Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Platform:** JavaScript/Node.js" >> $GITHUB_STEP_SUMMARY
+          echo "- **Variants:** 3" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Artifacts Generated" >> $GITHUB_STEP_SUMMARY
+          for dir in all-builds/*/; do
+            dirname=$(basename "$dir")
+            echo "- ✅ `$dirname`" >> $GITHUB_STEP_SUMMARY
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** All builds completed successfully! 🚀" >> $GITHUB_STEP_SUMMARY
